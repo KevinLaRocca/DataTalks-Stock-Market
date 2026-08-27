@@ -3,8 +3,6 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-#Homework:  
-#Which year had the highest number of additions (starting from 2020)? 
 url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
 
@@ -29,8 +27,6 @@ print("Adiciones por año desde 2020:")
 print(additions_since_2020)
 print(f"\nAño con más adiciones: {top_year} ({top_count} empresas)")
 print(f"Empresas con más de 20 años en el índice: {more_than_20_yrs}")
-
-#How many indexes (out of 10) have better year-to-date returns than the US (S&P 500) as of August 21, 2026?
 
 tickers = {
     'US - S&P 500': '^GSPC',
@@ -70,18 +66,14 @@ print(df_results.to_string(index=False))
 print(f"\nRendimiento S&P 500 (EE.UU.): {sp500_return:.2f}%")
 print(f"Cantidad de índices que superaron al S&P 500: {len(better_than_us)} de 10")
 
-#Question: Calculate the median drawdown (in %) of significant market corrections in the S&P 500 index.
-
-#Step1
 sp500 = yf.download("^GSPC", start="1950-01-01")
 if isinstance(sp500.columns, pd.MultiIndex):
     sp500.columns = sp500.columns.get_level_values(0)
-#Step2
+
 sp500['Historical_High'] = sp500['Close'].cummax()
 ath_df = sp500[sp500['Close'] == sp500['Historical_High']]
 
 correcciones = []
-#Step3
 for i in range(len(ath_df) - 1):
     start = ath_df.index[i]
     end = ath_df.index[i + 1]
@@ -90,7 +82,6 @@ for i in range(len(ath_df) - 1):
 
     ventana = sp500.loc[start:end]
     
-    # Sacamos el valor mínimo y el día exacto en que ocurrió
     precio_minimo = ventana['Close'].min()
     fecha_minimo = ventana['Close'].idxmin()
 
@@ -124,7 +115,59 @@ piso_p25 = correcciones5['dias_hasta_piso'].quantile(0.25)
 piso_p50 = correcciones5['dias_hasta_piso'].quantile(0.50)
 piso_p75 = correcciones5['dias_hasta_piso'].quantile(0.75)
 
-print("=== PERCENTILES DE CORRECCIONES (>= 5% Drawdown) ===")
+print("\n=== PERCENTILES DE CORRECCIONES (>= 5% Drawdown) ===")
 print(f"Drawdown (%):    25th: {dd_p25:.2f}% | 50th (Mediana): {dd_p50:.2f}% | 75th: {dd_p75:.2f}%")
 print(f"Días a Nuevo ATH: 25th: {dur_p25:.0f} días | 50th (Mediana): {dur_p50:.0f} días | 75th: {dur_p75:.0f} días")
 print(f"Días al Piso:    25th: {piso_p25:.0f} días | 50th (Mediana): {piso_p50:.0f} días | 75th: {piso_p75:.0f} días")
+
+ticker = 'AMZN'
+ticker_obj = yf.Ticker(ticker)
+
+earnings_df = ticker_obj.get_earnings_dates(limit=25)
+earnings_df.index = earnings_df.index.tz_localize(None)
+
+positive_surprises = earnings_df[earnings_df['Surprise(%)'] > 0].dropna(subset=['Surprise(%)']).copy()
+
+prices_amzn_df = yf.download(ticker, period="max")
+if isinstance(prices_amzn_df.columns, pd.MultiIndex):
+    prices_amzn_df.columns = prices_amzn_df.columns.get_level_values(0)
+    
+prices_amzn = prices_amzn_df['Close']
+if isinstance(prices_amzn, pd.DataFrame):
+    prices_amzn = prices_amzn.squeeze()
+
+prices_amzn.index = pd.to_datetime(prices_amzn.index).tz_localize(None).normalize()
+
+returns_2d = []
+surprises_list = []
+
+for event_date, row in positive_surprises.iterrows():
+    event_dt = pd.to_datetime(event_date).normalize()
+    
+    idx_search = prices_amzn.index.get_indexer([event_dt], method='pad')
+    if idx_search[0] == -1:
+        idx_search = prices_amzn.index.get_indexer([event_dt], method='bfill')
+        
+    idx_day2 = idx_search[0]
+    idx_day1 = idx_day2 - 1
+    idx_day3 = idx_day2 + 1
+    
+    if idx_day1 >= 0 and idx_day3 < len(prices_amzn):
+        p1 = float(prices_amzn.iloc[idx_day1])
+        p3 = float(prices_amzn.iloc[idx_day3])
+        
+        return_2d = (p3 / p1) - 1
+        returns_2d.append(return_2d)
+        surprises_list.append(row['Surprise(%)'])
+
+df_q4 = pd.DataFrame({
+    'Surprise_Magnitude': surprises_list,
+    'Return_2D': returns_2d
+})
+
+median_2d_return_pct = df_q4['Return_2D'].median() * 100
+correlation = df_q4.corr().iloc[0, 1]
+
+print("\n=== Question 4 Results (AMZN) ===")
+print(f"Mediana del retorno a 2 días (Positive Surprises): {median_2d_return_pct:.3f}%")
+print(f"Correlación entre magnitud de sorpresa y retorno a 2 días: {correlation:.4f}")
